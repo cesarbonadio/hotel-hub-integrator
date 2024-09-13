@@ -4,32 +4,88 @@ namespace App\Adapters;
 
 use App\Adapters\ServiceAdapter;
 
+use App\Http\Requests\commonHubRequest;
+use App\Http\Requests\hotelLegsRequest;
+use Illuminate\Foundation\Http\FormRequest;
+
+use Illuminate\Support\Carbon;
+use Faker\Factory as Faker;
+
 class hotelLegsServiceAdapter implements ServiceAdapter {
 
+    // map the rules that are directly asociated, the rest,
+    // will be calculated in mapCommonFields
     const mapRules = [
-        'hotel' => 'hotelId',
-        'checkInDate' => 'checkIn',
-        //'numberOfNights' => 
+        'hotelId' => 'hotel',
+        'checkIn' => 'checkInDate',
+        'numberOfGuests' => 'guests',
+        'numberOfRooms' => 'rooms',
+        'currency' => 'currency'
     ];
 
-    // this logic should be in the request
-    public function mapCommonFields(array $mapRules): array {
-
+    private static function calculateNights($startDate, $endDate)
+    {
+        // Parse the dates using Carbon helper
+        $start = Carbon::parse($startDate);
+        $end = Carbon::parse($endDate);
+        
+        // Calculate the difference in days (nights)
+        $nights = $start->diffInDays($end);
+        
+        return $nights;
     }
 
-    public function sendRequest(array $commonRequest): array {
-        // Transform common request to service A format
+    // this logic should be in the request
+    public function mapCommonFields(commonHubRequest $request): FormRequest
+    {
+        $requestProperties = $request->all();
+        $newRequest = [];
 
-        $mockRequestData = [
-            'hotel' => 1,
-            'checkInDate' => '2018-10-20',
-            'numberOfNights' => 5,
-            'guests' => 3,
-            'rooms' => 2,
-            'currency' => 'EUR'
-        ];
+        // automatically map the properties that can be directly mapped
+        foreach ($requestProperties as $property => $value) {
+            if (array_key_exists($property, self::mapRules)) {
+                $newRequest[self::mapRules[$property]] = $value;
+            }
+        }
+
+        // manually calculate the rest properties that are not mapped directly
+        $newRequest['numberOfNights'] = self::calculateNights(
+            $request->checkIn,
+            $request->checkOut
+        );
+        // and so on...
+
+        return new hotelLegsRequest($newRequest);
+    }
+
+    public function sendRequest(array $adapterTypeRequest): array 
+    {
+        // Transform common request to service A format
+        // simulate the api call ...
+        // print_r($adapterTypeRequest);
+
+        if(config('custom.RANDOMIZE_REQUEST_DATA')) {
+            $count = 4;
+
+            // Create a new Faker instance
+            $faker = Faker::create();
+
+            // Possible room and meal options
+            $rooms = [1, 2, 3, 4];
+            $meals = [1, 2, 3, 4];
+
+            // Generate fake data
+            return collect(range(1, $count))->map(function () use ($faker, $rooms, $meals) {
+                return [
+                    'room' => $faker->randomElement($rooms),
+                    'meal' => $faker->randomElement($meals),
+                    'canCancel' => $faker->boolean,
+                    'price' => $faker->randomFloat(2, 100, 200)
+                ];
+            })->toArray();
+        }
         
-        // mock
+        // mock static if randomize is false
         return [
             [
                 'room' => 1,
@@ -58,40 +114,24 @@ class hotelLegsServiceAdapter implements ServiceAdapter {
         ];
     }
 
-    public function formatResponse(array $serviceResponse): array {
-        // Transform service A response to common response format
-
-        return [
-            'rooms' => [
-                'roomId'=> 1,
-                'rates'=> [
-                    [
-                        'mealPlanId'=>1,
-                        'isCancellable'=> false,
-                        'price'=> 123.48
-                    ],
-                    [
-                        'mealPlanId'=>2,
-                        'isCancellable'=> true,
-                        'price'=> 150.00
-                    ]
-                ]
-            ],
-            [
-                'roomId'=> 2,
-                'rates'=> [
-                    [
-                        'mealPlanId'=>1,
-                        'isCancellable'=> false,
-                        'price'=> 123.48
-                    ],
-                    [
-                        'mealPlanId'=>2,
-                        'isCancellable'=> true,
-                        'price'=> 150.00
-                    ]
-                ]
-            ]
-        ];
+    public function formatResponse(array $serviceResponse): array
+    {
+        // Use Laravel's collect() helper to work with collections
+        return collect($serviceResponse)
+        ->groupBy('room')
+        ->map(function ($roomRates, $roomId) {
+            return [
+                'roomId' => (int) $roomId,
+                'rates' => $roomRates->map(function ($rate) {
+                    return [
+                        'mealPlanId' => $rate['meal'],
+                        'isCancellable' => $rate['canCancel'],
+                        'price' => $rate['price']
+                    ];
+                })->values()->toArray()
+            ];
+        })
+        ->values() 
+        ->toArray();
     }
 }
