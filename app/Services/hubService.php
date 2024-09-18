@@ -40,7 +40,7 @@ class hubService
         }
 
         return [
-            'HUB_response' => $responses,
+            'rooms' => $responses[0],
             'integrators_requests' => $integratorsRequests,
             'dinamycally_generated' => config('custom.RANDOMIZE_REQUEST_DATA')
         ];
